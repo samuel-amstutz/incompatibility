@@ -1,0 +1,168 @@
+/* Perforated plate under pure traction or shear */
+load "medit"
+load "Element_HCT"
+
+verbosity = 1;
+int nwait=0;
+
+int GammaL=1,GammaB=2,GammaR=3,GammaT=4,GammaH=0;
+
+/* Geometry and boundary conditions */
+border left(t=0.0,1.0){x = 0.0; y = 1.0-t; label = GammaL;};
+border bottom(t=0.0,1.0){x=t; y= 0.0; label=GammaB;};
+border right(t=0.0,1.0){x = 1.0; y = t; label = GammaR;};
+border top(t=0.0,1.0){x =1.0-t; y = 1.0; label = GammaT;};
+border hole(t=0.0,2.0*pi){x=0.5+0.1*cos(t); y=0.5+0.1*sin(t); label=GammaH;};
+
+
+/* Mesh */
+//mesh Th = buildmesh( left(80) + bottom(80) + right(80) + top(80) + hole(-80) );
+//mesh Th = buildmesh( left(60) + bottom(60) + right(60) + top(60) + hole(-60) );
+mesh Th = buildmesh( left(40) + bottom(40) + right(40) + top(40) + hole(-40) );
+//mesh Th = buildmesh( left(20) + bottom(20) + right(20) + top(20) + hole(-20) );
+
+plot(Th,wait=nwait);
+
+/* Parameters */
+
+int niter=20;
+int nnewt=10;
+int iter,inewt;
+real epsnewt=1e-8;
+
+/* Finite element spaces */
+fespace Vh(Th,P2);
+fespace Vh0(Th,P1);
+fespace Vh00(Th,P0);
+fespace Eh(Th,HCT);
+
+Vh   ux,uy,vx,vy;
+Vh   px,py,qx,qy;
+Eh   [Eixx,Eixxx,Eixxy],[Eiyy,Eiyyx,Eiyyy],[Eixy,Eixyx,Eixyy];
+Eh   [Fixx,Fixxx,Fixxy],[Fiyy,Fiyyx,Fiyyy],[Fixy,Fixyx,Fixyy];
+Vh00  incEzz;
+Vh00   Mises;
+Vh0 Ecxx,Ecyy,Ecxy;
+
+real mu0 = 0.3846;
+real kappa0 = 0.83;
+real albe0=1e5;
+real fre;
+
+Vh00 cokappa,comu,coalbe,anewt,bnewt,qstar;
+Vh00 rho,h,dh,ddh,rhomin,rhoini,Mu,Kappa,Albe,q;
+rhomin=1e-3;
+rhoini=1e-3;
+rho=rhoini;
+
+real kmu=10000;
+real kalbe=1;
+real yieldsq=1;
+real gamma=yieldsq/(2*kmu);
+
+// traction
+macro Wleft(vx,vy) (-vx)//
+macro Wright(vx,vy) (vx)//
+macro Wbottom(vx,vy) (-0*vy)//
+macro Wtop(vx,vy) (0*vy)//
+
+// shear
+//macro Wleft(vx,vy) (-vy)//
+//macro Wright(vx,vy) (vy)//
+//macro Wbottom(vx,vy) (-vx)//
+//macro Wtop(vx,vy) (vx)//
+
+macro mut(rho) (kmu/rho)//
+macro dmut(rho) (-kmu/rho^2)//
+macro ddmut(rho) (2*kmu/rho^3)//
+
+macro mu(rho) ((mu0*mut(rho))/(mu0+mut(rho)))//
+macro kappa(rho) (kappa0)//
+macro albe(rho) (kalbe/rho)//
+
+macro dmu(rho) ((mu(rho)^2/mut(rho)^2)*dmut(rho))//
+macro dkappa(rho) (0)//
+macro dalbe(rho) (-kalbe/rho^2)//
+
+macro ddmu(rho) (2*dmu(rho)^2*(1/mu(rho)-mut(rho)/mu(rho)^2)+(mu(rho)^2/mut(rho)^2)*ddmut(rho))//
+macro ddkappa(rho) (0)//
+macro ddalbe(rho) (2*kalbe/rho^3)//
+
+Vh0 hMax = hTriangle; // get sizes of all triangles
+real meshsiz = hMax[].max; // get maximal triangle size
+
+macro div(ux,uy) (dx(ux)+dy(uy))//
+real sqrt2 = sqrt(2);
+macro e(ux,uy) [dx(ux),dy(uy),(dx(uy)+dy(ux))/sqrt2]//
+macro EE(Eixx,Eiyy,Eixy) [Eixx,Eiyy,sqrt2*Eixy]//
+macro trEE(Eixx,Eiyy,Eixy) (Eixx+Eiyy)//
+macro inc(Eixx,Eiyy,Eixy) (dxx(Eiyy)+dyy(Eixx)-2*dxy(Eixy))//
+macro tre(ux,uy) (dx(ux)+dy(uy))//
+
+real epsu=1e-6;
+real epsp=1e-6;
+
+/* Incompatibility system */
+problem incomp([ux,uy,Eixx,Eixxx,Eixxy,Eiyy,Eiyyx,Eiyyy,Eixy,Eixyx,Eixyy,px,py],[vx,vy,Fixx,Fixxx,Fixxy,Fiyy,Fiyyx,Fiyyy,Fixy,Fixyx,Fixyy,qx,qy],solver=Crout) =
+  int2d(Th)((kappa(rho)-(2/3)*mu(rho))*(tre(ux,uy)+trEE(Eixx,Eiyy,Eixy))*(tre(vx,vy)+trEE(Fixx,Fiyy,Fixy))
+  +2*mu(rho)*(e(ux,uy)+EE(Eixx,Eiyy,Eixy))'*(e(vx,vy)+EE(Fixx,Fiyy,Fixy))
+  +albe(rho)*inc(Eixx,Eiyy,Eixy)*inc(Fixx,Fiyy,Fixy)
+  +EE(Eixx,Eiyy,Eixy)'*e(qx,qy))
+  -int1d(Th,GammaL)(Wleft(vx,vy)) - int1d(Th,GammaR)(Wright(vx,vy)) -int1d(Th,GammaB)(Wbottom(vx,vy)) - int1d(Th,GammaT)(Wtop(vx,vy))
++int2d(Th)(e(px,py)'*EE(Fixx,Fiyy,Fixy))
++int2d(Th)(epsu*(ux*vx+uy*vy))-int2d(Th)(epsp*(px*qx+py*qy));
+
+/* Main loop */
+
+for (iter=1;iter< niter;iter=iter+1)
+{
+
+/* compute E */
+incomp;
+plot(rho,fill=1,value=1,ps="rho.eps",wait=nwait,cmm="rho");
+//real exa=0.02/ux[].linfty;
+//mesh Thmov=movemesh(Th,[x+exa*ux,y+exa*uy]);
+//plot(Thmov,ps="displacement.eps",wait=nwait);
+
+plot(Eixx,fill=1,value=1,ps="Eixx.eps",wait=nwait,cmm="Eixx");
+plot(Eiyy,fill=1,value=1,ps="Eiyy.eps",wait=nwait,cmm="Eiyy");
+plot(Eixy,fill=1,value=1,ps="Eixy.eps",wait=nwait,cmm="Eixy");
+Ecxx=dx(ux);
+Ecyy=dy(uy);
+Ecxy=(dx(uy)+dy(ux))/2;
+plot(Ecxx,fill=1,value=1,ps="Ecxx.eps",wait=nwait,cmm="Ecxx");
+plot(Ecyy,fill=1,value=1,ps="Ecyy.eps",wait=nwait,cmm="Ecyy");
+plot(Ecxy,fill=1,value=1,ps="Ecxy.eps",wait=nwait,cmm="Ecxy");
+
+Mises=4*mu(rho)^2*((-1/3)*(tre(ux,uy)+trEE(Eixx,Eiyy,Eixy))*(tre(ux,uy)+trEE(Eixx,Eiyy,Eixy))+(e(ux,uy)+EE(Eixx,Eiyy,Eixy))'*(e(ux,uy)+EE(Eixx,Eiyy,Eixy)));
+plot(Mises,fill=1,value=1,ps="Mises.eps",wait=nwait,cmm="von Mises");
+Mu=mu(rho); plot(Mu,fill=1,value=1,ps="mu.eps",wait=nwait,cmm="mu");
+Albe=albe(rho); plot(Albe,fill=1,value=1,ps="albe.eps",wait=nwait,cmm="albe");
+
+incEzz=inc(Eixx,Eiyy,Eixy);
+plot(incEzz,fill=1,value=1,ps="incE.eps",wait=nwait,cmm="inc E");
+
+/* Update rho */
+cokappa=(tre(ux,uy)+trEE(Eixx,Eiyy,Eixy))*(tre(ux,uy)+trEE(Eixx,Eiyy,Eixy));
+comu=(-2/3)*(tre(ux,uy)+trEE(Eixx,Eiyy,Eixy))*(tre(ux,uy)+trEE(Eixx,Eiyy,Eixy))+2*(e(ux,uy)+EE(Eixx,Eiyy,Eixy))'*(e(ux,uy)+EE(Eixx,Eiyy,Eixy));
+coalbe=inc(Eixx,Eiyy,Eixy)*inc(Eixx,Eiyy,Eixy);
+anewt=comu/gamma;
+bnewt=coalbe*kalbe/gamma;
+qstar=1-anewt*mu0/kmu;
+
+cout << "iteration number " << iter << endl;
+
+q=(max(0,qstar)+1)/2;
+for (inewt=1;inewt< nnewt;inewt=inewt+1)
+{
+fre=int2d(Th)(kappa(rho)*cokappa+mu(rho)*comu+albe(rho)*coalbe+gamma*rho)+2*(-int1d(Th,GammaL)(Wleft(ux,uy)) - int1d(Th,GammaR)(Wright(ux,uy)) -int1d(Th,GammaB)(Wbottom(ux,uy)) - int1d(Th,GammaT)(Wtop(ux,uy)));
+cout << fre << endl;
+h=2*sqrt(bnewt*q)-(sqrt(anewt*mu0)-sqrt(kmu*(1-q)/mu0))^2;
+dh=sqrt(bnewt/q)+kmu/mu0-sqrt(anewt*kmu/(1-q));
+ddh=-(sqrt(bnewt)/(sqrt(q)^3)+sqrt(anewt*kmu)/(sqrt(1-q)^3))/2;
+q=max(max(qstar,epsnewt),min(1-epsnewt,q-dh/ddh));
+rho=sqrt((anewt*kmu)/(1-q))-(kmu/mu0);
+rho=max(rhomin,rho);
+}
+
+}

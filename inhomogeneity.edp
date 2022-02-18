@@ -1,0 +1,134 @@
+/* Plate under shear with prescribed inhomogeneous coefficients  */
+load "medit"
+load "Element_HCT"
+
+verbosity = 1;
+
+int GammaL=1,GammaB=2,GammaR=3,GammaT=4,GammaH=0;
+real r=0.15;
+real cx=0.5;
+real cy=0.5;
+
+/* Geometry and boundary conditions */
+border left(t=0.0,1.0){x = 0.0; y = 1.0-t; label = GammaL;};
+border bottom(t=0.0,1.0){x=t; y= 0.0; label=GammaB;};
+border right(t=0.0,1.0){x = 1.0; y = t; label = GammaR;};
+border top(t=0.0,1.0){x =1.0-t; y = 1.0; label = GammaT;};
+border hole(t=0.0,2.0*pi){x=cx+r*cos(t); y=cy+r*sin(t); label=GammaH;};
+
+
+/* Mesh */
+//mesh Th = buildmesh( left(30) + bottom(30) + right(30) + top(30) + hole(60) );
+//mesh Th = buildmesh( left(40) + bottom(40) + right(40) + top(40) + hole(80) );
+//mesh Th = buildmesh( left(50) + bottom(50) + right(50) + top(50) + hole(100) );
+mesh Th = buildmesh( left(60) + bottom(60) + right(60) + top(60) + hole(120) );
+//mesh Th = buildmesh( left(80) + bottom(80) + right(80) + top(80) + hole(160) );
+
+plot(Th,wait=1);
+
+
+/* Finite element spaces */
+fespace Vh(Th,P2);
+fespace Vh0(Th,P1);
+fespace Vh0b(Th,P1b);
+fespace Vh00(Th,P0);
+fespace Eh(Th,HCT);
+
+int C1,C2;
+Vh00 reg=region;
+C1=reg(cx,cy);
+C2=reg(0.01,0.01);
+
+Vh   ux,uy,vx,vy;
+Vh   px,py,qx,qy;
+Eh   [Eixx,Eixxx,Eixxy],[Eiyy,Eiyyx,Eiyyy],[Eixy,Eixyx,Eixyy];
+Eh   [Fixx,Fixxx,Fixxy],[Fiyy,Fiyyx,Fiyyy],[Fixy,Fixyx,Fixyy];
+Vh   cos1,sin1,Eirr,Eitt,Eirt;
+Vh00  incEzz;
+Vh00   Mises;
+Vh0 Ecxx,Ecyy,Ecxy;
+Vh0 cos2,sin2,Ecrr,Ectt,Ecrt;
+Vh00 mu,kappa,albe;
+Vh0 hMax = hTriangle; // get sizes of all triangles
+
+real meshsiz = hMax[].max; // get maximal triangle size
+real compliance;
+
+macro div(ux,uy) (dx(ux)+dy(uy))//
+real sqrt2 = sqrt(2);
+macro e(ux,uy) [dx(ux),dy(uy),(dx(uy)+dy(ux))/sqrt2]//
+macro EE(Eixx,Eiyy,Eixy) [Eixx,Eiyy,sqrt2*Eixy]//
+macro trEE(Eixx,Eiyy,Eixy) (Eixx+Eiyy)//
+macro inc(Eixx,Eiyy,Eixy) (dxx(Eiyy)+dyy(Eixx)-2*dxy(Eixy))//
+macro tre(ux,uy) (dx(ux)+dy(uy))//
+
+// traction
+//macro Wleft(vx,vy) (-vx)//
+//macro Wright(vx,vy) (vx)//
+//macro Wbottom(vx,vy) (-vy)//
+//macro Wtop(vx,vy) (vy)//
+
+// shear
+macro Wleft(vx,vy) (-vy)//
+macro Wright(vx,vy) (vy)//
+macro Wbottom(vx,vy) (-vx)//
+macro Wtop(vx,vy) (vx)//
+
+mu = 1e-3*(C2-reg)/(C2-C1)+0.3*(C1-reg)/(C1-C2);
+kappa = 0.8*(C2-reg)/(C2-C1)+0.8*(C1-reg)/(C1-C2);
+albe = 1e-5*(C2-reg)/(C2-C1)+1e3*(C1-reg)/(C1-C2);
+
+real epsu=1e-6;
+real epsp=1e-6;
+
+/* Incompatibility system */
+problem incomp([ux,uy,Eixx,Eixxx,Eixxy,Eiyy,Eiyyx,Eiyyy,Eixy,Eixyx,Eixyy,px,py],[vx,vy,Fixx,Fixxx,Fixxy,Fiyy,Fiyyx,Fiyyy,Fixy,Fixyx,Fixyy,qx,qy],solver=Crout) =
+  int2d(Th)((kappa-(2/3)*mu)*(tre(ux,uy)+trEE(Eixx,Eiyy,Eixy))*(tre(vx,vy)+trEE(Fixx,Fiyy,Fixy))
+  +2*mu*(e(ux,uy)+EE(Eixx,Eiyy,Eixy))'*(e(vx,vy)+EE(Fixx,Fiyy,Fixy))
+  +albe*inc(Eixx,Eiyy,Eixy)*inc(Fixx,Fiyy,Fixy)
+  +EE(Eixx,Eiyy,Eixy)'*e(qx,qy))
+  -int1d(Th,GammaL)(Wleft(vx,vy)) - int1d(Th,GammaR)(Wright(vx,vy)) -int1d(Th,GammaB)(Wbottom(vx,vy)) - int1d(Th,GammaT)(Wtop(vx,vy))
++int2d(Th)(e(px,py)'*EE(Fixx,Fiyy,Fixy))
++int2d(Th)(epsu*(ux*vx+uy*vy))-int2d(Th)(epsp*(px*qx+py*qy));
+
+plot(mu,fill=1,value=1,wait=1,cmm="mu");
+plot(kappa,fill=1,value=1,wait=1,cmm="kappa");
+plot(albe,fill=1,value=1,wait=1,cmm="albe");
+
+incomp;
+
+real exa=0.1/ux[].linfty;
+mesh Thmov=movemesh(Th,[x+exa*ux,y+exa*uy]);
+plot(Thmov,wait=1,ps="mesh.eps");
+
+plot(Eixx,fill=1,value=1,ps="Eixx.eps",wait=1,cmm="Eixx");
+plot(Eiyy,fill=1,value=1,ps="Eiyy.eps",wait=1,cmm="Eiyy");
+plot(Eixy,fill=1,value=1,ps="Eixy.eps",wait=1,cmm="Eixy");
+Ecxx=dx(ux);
+Ecyy=dy(uy);
+Ecxy=(dx(uy)+dy(ux))/2;
+plot(Ecxx,fill=1,value=1,ps="Ecxx.eps",wait=1,cmm="Ecxx");
+plot(Ecyy,fill=1,value=1,ps="Ecyy.eps",wait=1,cmm="Ecyy");
+plot(Ecxy,fill=1,value=1,ps="Ecxy.eps",wait=1,cmm="Ecxy");
+real eps1=1e-6;
+cos1=(x-0.5)/sqrt((x-0.5)^2+(y-0.5)^2+eps1); sin1=(y-0.5)/sqrt((x-0.5)^2+(y-0.5)^2+eps1);
+Eirr=Eixx*cos1^2+Eiyy*sin1^2+2*Eixy*sin1*cos1;
+plot(Eirr,fill=1,value=1,ps="Eirr.eps",wait=1,cmm="Eirr");
+Eitt=Eixx*sin1^2+Eiyy*cos1^2-2*Eixy*sin1*cos1;
+plot(Eitt,fill=1,value=1,ps="Eitt.eps",wait=1,cmm="Eitt");
+Eirt=-Eixx*sin1*cos1+Eiyy*cos1*sin1+Eixy*(cos1^2-sin1^2);
+plot(Eirt,fill=1,value=1,ps="Eirt.eps",wait=1,cmm="Eirt");
+real eps2=1e-6;
+cos2=(x-0.5)/sqrt((x-0.5)^2+(y-0.5)^2+eps2); sin2=(y-0.5)/sqrt((x-0.5)^2+(y-0.5)^2+eps2);
+Ecrr=Ecxx*cos2^2+Ecyy*sin2^2+2*Ecxy*sin2*cos2;
+plot(Ecrr,fill=1,value=1,ps="Ecrr.eps",wait=1,cmm="Ecrr");
+Ectt=Ecxx*sin2^2+Ecyy*cos2^2-2*Ecxy*sin2*cos2;
+plot(Ectt,fill=1,value=1,ps="Ectt.eps",wait=1,cmm="Ectt");
+Ecrt=-Ecxx*sin2*cos2+Ecyy*cos2*sin2+Ecxy*(cos2^2-sin2^2);
+plot(Ecrt,fill=1,value=1,ps="Ecrt.eps",wait=1,cmm="Ecrt");
+
+incEzz=inc(Eixx,Eiyy,Eixy);
+plot(incEzz,fill=1,value=1,ps="incE.eps",wait=1,cmm="inc E");
+
+compliance= int1d(Th,GammaL)(Wleft(ux,uy)) + int1d(Th,GammaR)(Wright(ux,uy)) + int1d(Th,GammaB)(Wbottom(ux,uy)) + int1d(Th,GammaT)(Wtop(ux,uy));
+cout << compliance << endl;
