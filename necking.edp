@@ -8,25 +8,26 @@ int nwait=0;
 int GammaL=1,GammaB=2,GammaR=3,GammaT=4,GammaH=0;
 
 /* Geometry and boundary conditions */
-border left(t=0.0,1.0){x = 0.0; y = 1.0-t; label = GammaL;};
-border bottom(t=0.0,1.0){x=t; y= 0.0; label=GammaB;};
-border right(t=0.0,1.0){x = 1.0; y = t; label = GammaR;};
-border top(t=0.0,1.0){x =1.0-t; y = 1.0; label = GammaT;};
-border hole(t=0.0,2.0*pi){x=0.5+0.1*cos(t); y=0.5+0.1*sin(t); label=GammaH;};
+border left(t=0.0,0.5){x = 0.0; y = 0.5-t; label = GammaL;};
+border bottom1(t=0.0,0.4){x=t; y= 0.0; label=GammaB;};
+border bottom2(t=0.0,pi){x=0.5-0.1*cos(t); y=0.0+0.1*sin(t); label=GammaB;};
+border bottom3(t=0.0,0.4){x=0.6+t; y= 0.0; label=GammaB;};
+border right(t=0.0,0.5){x = 1.0; y = t; label = GammaR;};
+border top1(t=0.0,0.4){x =1.0-t; y = 0.5; label = GammaT;};
+border top2(t=0.0,pi){x=0.5+0.1*cos(t); y=0.5-0.1*sin(t); label=GammaT;};
+border top3(t=0.0,0.4){x =0.4-t; y = 0.5; label = GammaT;};
 
 
 /* Mesh */
-//mesh Th = buildmesh( left(80) + bottom(80) + right(80) + top(80) + hole(-80) );
-//mesh Th = buildmesh( left(60) + bottom(60) + right(60) + top(60) + hole(-60) );
-mesh Th = buildmesh( left(40) + bottom(40) + right(40) + top(40) + hole(-40) );
-//mesh Th = buildmesh( left(50) + bottom(50) + right(50) + top(50) + hole(-50) );
-//mesh Th = buildmesh( left(20) + bottom(20) + right(20) + top(20) + hole(-20) );
+//mesh Th = buildmesh( left(20) + bottom1(16) + bottom2(12) + bottom3(16)+ right(20) + top1(16) + top2(12)+top3(16) );
+mesh Th = buildmesh( left(30) + bottom1(24) + bottom2(18) + bottom3(24)+ right(30) + top1(24) + top2(18)+top3(24) );
+
 
 plot(Th,wait=nwait);
 
 /* Parameters */
 
-int niter=20;
+int niter=50;
 int nnewt=10;
 int iter,inewt;
 real epsnewt=1e-8;
@@ -57,7 +58,7 @@ rho=rhoini;
 
 real kmu=1e4;
 real kalbe=1;
-real yieldsq=1.0;
+real yieldsq=0.9;
 real gamma=yieldsq/(2*kmu);
 
 // traction
@@ -120,7 +121,8 @@ for (iter=1;iter< niter;iter=iter+1)
 /* compute E */
 incomp;
 plot(rho,fill=1,value=1,ps="rho.eps",wait=nwait,cmm="theta");
-real exa=10;
+//real exa=0.1/ux[].linfty;
+real exa=5;
 mesh Thmov=movemesh(Th,[x+exa*ux,y+exa*uy]);
 plot(Thmov,wait=nwait,ps="displacement.eps");
 
@@ -164,5 +166,5 @@ q=max(max(qstar,epsnewt),min(1-epsnewt,q-dh/ddh));
 rho=sqrt((anewt*kmu)/(1-q))-(kmu/mu0);
 rho=max(rhomin,rho);
 }
-//plot(q,fill=1,value=1,ps="q.eps",wait=nwait,cmm="r");
+
 }
